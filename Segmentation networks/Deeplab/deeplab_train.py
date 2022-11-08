@@ -12,23 +12,23 @@ from Utils.augmentation import get_training_augmentation, get_validation_augment
 from Utils.dataset import Dataset, Dataloder
 from Utils.visuals import visualize, denormalize
 
-img_size = (224, 224)
+img_size = (256, 256)
 num_classes = 2
 batch_size = 4
 
 
 DATA_DIR = f'{Path(__file__).parent.parent.parent}/Dataset'
 
-x_train_dir = os.path.join(DATA_DIR, 'training/img')
-y_train_dir = os.path.join(DATA_DIR, 'training/mask')
+x_train_dir = os.path.join(DATA_DIR, 'training_augmented/img')
+y_train_dir = os.path.join(DATA_DIR, 'training_augmented/mask')
 train_len = len(os.listdir(x_train_dir))
 
-x_valid_dir = os.path.join(DATA_DIR, 'validation/img')
-y_valid_dir = os.path.join(DATA_DIR, 'validation/mask')
+x_valid_dir = os.path.join(DATA_DIR, 'validation_augmented/img')
+y_valid_dir = os.path.join(DATA_DIR, 'validation_augmented/mask')
 valid_len = len(os.listdir(x_valid_dir))
 
-x_test_dir = os.path.join(DATA_DIR, 'test/img')
-y_test_dir = os.path.join(DATA_DIR, 'test/mask')
+x_test_dir = os.path.join(DATA_DIR, 'test_augmented/img')
+y_test_dir = os.path.join(DATA_DIR, 'test_augmented/mask')
 test_len = len(os.listdir(x_test_dir))
 
 from tensorflow.keras import layers
@@ -158,7 +158,7 @@ valid_dataloader = Dataloder(valid_dataset, batch_size=BATCH_SIZE, shuffle=True,
 model_num = 1
 loss = 'jaccard_loss'
 image_size = str(img_size[0])
-image_mode = 'full'
+image_mode = 'cropped'
 add_info = ''
 model_name = f'deeplab_{model_num}_{loss}_{image_size}_size_{image_mode}_{EPOCHS}_epoch_{add_info}'
 
@@ -211,7 +211,7 @@ test_dataset = Dataset(
     preprocessing=get_preprocessing(preprocess_input),
 )
 
-test_dataloader = Dataloder(test_dataset, batch_size=1, shuffle=False)
+test_dataloader = Dataloder(test_dataset, batch_size=1, shuffle=False, train_len=test_len)
 
 scores = model.evaluate(test_dataloader)
 

@@ -1,17 +1,19 @@
+import math
+
 import matplotlib.pyplot as plt
 import os
-import random
-import tensorflow as tf
 import cv2
+import tensorflow as tf
 import numpy as np
+import keras.backend as K
+from Utils.metrics import dice_coef, jaccard_score, jaccard_score_true_class
 from Utils.losses import jaccard_loss
-from Utils.metrics import jaccard_score, jaccard_score_true_class, dice_coef
 from Utils.augmentation import get_training_augmentation, get_validation_augmentation, get_preprocessing
 from Utils.dataset import Dataset, Dataloder
 from Utils.visuals import visualize, denormalize
 from pathlib import Path
 
-img_size = (240, 240)
+img_size = (224, 224)
 num_classes = 2
 batch_size = 4
 
@@ -31,8 +33,70 @@ y_test_dir = os.path.join(DATA_DIR, 'test_augmented/mask')
 test_len = len(os.listdir(x_test_dir))
 
 
+from tensorflow.keras import layers
+from tensorflow import keras
 import segmentation_models as sm
 
+def get_model(img_size, num_classes):
+    inputs = keras.Input(shape=img_size + (3,))
+
+    ### [First half of the network: downsampling inputs] ###
+
+    # Entry block
+    x = layers.Conv2D(32, 3, strides=2, padding="same")(inputs)
+    x = layers.BatchNormalization()(x)
+    x = layers.Activation("relu")(x)
+
+    previous_block_activation = x  # Set aside residual
+
+    # Blocks 1, 2, 3 are identical apart from the feature depth.
+    for filters in [64, 128, 256]:
+        x = layers.Activation("relu")(x)
+        x = layers.SeparableConv2D(filters, 3, padding="same")(x)
+        x = layers.BatchNormalization()(x)
+
+        x = layers.Activation("relu")(x)
+        x = layers.SeparableConv2D(filters, 3, padding="same")(x)
+        x = layers.BatchNormalization()(x)
+
+        x = layers.MaxPooling2D(3, strides=2, padding="same")(x)
+
+        # Project residual
+        residual = layers.Conv2D(filters, 1, strides=2, padding="same")(
+            previous_block_activation
+        )
+        x = layers.add([x, residual])  # Add back residual
+        previous_block_activation = x  # Set aside next residual
+
+    ### [Second half of the network: upsampling inputs] ###
+
+    for filters in [256, 128, 64, 32]:
+        x = layers.Activation("relu")(x)
+        x = layers.Conv2DTranspose(filters, 3, padding="same")(x)
+        x = layers.BatchNormalization()(x)
+
+        x = layers.Activation("relu")(x)
+        x = layers.Conv2DTranspose(filters, 3, padding="same")(x)
+        x = layers.BatchNormalization()(x)
+
+        x = layers.UpSampling2D(2)(x)
+
+        # Project residual
+        residual = layers.UpSampling2D(2)(previous_block_activation)
+        residual = layers.Conv2D(filters, 1, padding="same")(residual)
+        x = layers.add([x, residual])  # Add back residual
+        previous_block_activation = x  # Set aside next residual
+
+    # Add a per-pixel classification layer
+    outputs = layers.Conv2D(num_classes, 3, activation="softmax", padding="same")(x)
+
+    # Define the model
+    model = keras.Model(inputs, outputs)
+    return model
+
+
+# Free up RAM in case the model definition cells were run multiple times
+keras.backend.clear_session()
 BACKBONE = 'efficientnetb3'
 BATCH_SIZE = batch_size
 CLASSES = ['background', 'polyp']
@@ -41,26 +105,26 @@ EPOCHS = 15
 
 preprocess_input = sm.get_preprocessing(BACKBONE)
 
-n_classes = 2  # case for binary and multiclass segmentation
+n_classes = 2
 activation = 'sigmoid'
 
 #create model
-model = sm.PSPNet(BACKBONE, input_shape = (img_size[0], img_size[1], 3), classes=n_classes, activation=activation)
+model = sm.Linknet(BACKBONE, classes=n_classes, activation=activation)
+#model = get_model(img_size, num_classes)
 
 optim = tf.keras.optimizers.Adam(LR)
 
-total_loss = jaccard_loss
-
-
 metrics = [jaccard_score_true_class, jaccard_score, dice_coef]
-model.summary()
+
+model.compile(optim, jaccard_loss, metrics)
 # compile keras model with defined optimozer, loss and metrics
-model.compile(optim, total_loss, metrics)
+
+model.summary()
 
 train_dataset = Dataset(
     x_train_dir,
     y_train_dir,
-    img_size=img_size,
+    img_size = img_size,
     classes=CLASSES,
     augmentation=get_training_augmentation(img_size),
     preprocessing=get_preprocessing(preprocess_input),
@@ -70,26 +134,32 @@ train_dataset = Dataset(
 valid_dataset = Dataset(
     x_valid_dir,
     y_valid_dir,
-    img_size=img_size,
+    img_size = img_size,
     classes=CLASSES,
     augmentation=get_validation_augmentation(img_size),
     preprocessing=get_preprocessing(preprocess_input),
 )
 
 train_dataloader = Dataloder(train_dataset, batch_size=BATCH_SIZE, shuffle=True, length=train_len // batch_size, train_len=train_len)
-valid_dataloader = Dataloder(valid_dataset, batch_size=1, shuffle=False, length=valid_len // batch_size, validation=True, validation_len=valid_len)
+valid_dataloader = Dataloder(valid_dataset, batch_size=BATCH_SIZE, shuffle=True, length=valid_len // batch_size, validation=True, validation_len=valid_len)
 
+#model desc
 model_num = 1
 loss = 'jaccard_loss'
 image_size = str(img_size[0])
-image_mode = 'full'
-add_info = ''
-model_name = f'pspnet_{model_num}_{loss}_{image_size}_size_{image_mode}_{EPOCHS}_epoch_{add_info}'
-
+image_mode = 'cropped'
+add_info = f''
+model_name = f'linknet_{model_num}_{BACKBONE}_{loss}_{image_size}_size_{image_mode}_{EPOCHS}_epoch_{add_info}'
+# model = keras.models.load_model(f'models/unet_1_efficientnetb3_dice_loss_plus_focal_loss_224_size_crop_6_epoch_binary_arthery_w_true_weight_0.1_nadam.h5',
+#                                 custom_objects={'jaccard_loss': jaccard_loss,
+#                                                 'jaccard_score_true_class': jaccard_score_true_class,
+#                                                 'jaccard_score_all': jaccard_score_all,
+#                                                 'dice_coef': dice_coef})
 # define callbacks for learning rate scheduling and best checkpoints saving
 callbacks = [
     tf.keras.callbacks.ModelCheckpoint(f"models/{model_name}.h5", save_best_only=True, mode='min'),
     tf. keras.callbacks.ReduceLROnPlateau(),
+    #tf.keras.callbacks.EarlyStopping(monitor="val_loss",min_delta=0,patience=10,verbose=0,mode="auto",baseline=None,restore_best_weights=False,)
 ]
 
 history = model.fit(
@@ -101,7 +171,7 @@ history = model.fit(
     validation_steps=len(valid_dataloader),
 )
 
-# Plot training & validation iou_score values
+#Plot training & validation iou_score values
 fig, ax = plt.subplots(2,2)
 
 ax[0,0].plot(history.history["loss"])
@@ -123,19 +193,22 @@ ax[1,1].plot(history.history["val_jaccard_score"])
 ax[1,1].set_title("Validation Accuracy")
 ax[1,1].set_ylabel("val_accuracy")
 ax[1,1].set_xlabel("epoch")
-plt.savefig(f'results/model_plot_{model_name}.png', dpi = 300)
+plt.savefig(f'results/plots/model_plot_{model_name}.png', dpi = 300)
 
 test_dataset = Dataset(
     x_test_dir,
     y_test_dir,
-    img_size=img_size,
+    img_size = img_size,
     classes=CLASSES,
-    augmentation=get_validation_augmentation(img_size),
+    #augmentation=get_validation_augmentation(),
     preprocessing=get_preprocessing(preprocess_input),
 )
 
 test_dataloader = Dataloder(test_dataset, batch_size=1, shuffle=False, train_len=test_len)
 
+model = keras.models.load_model(f'models/{model_name}.h5',
+                                 custom_objects={'jaccard_loss': jaccard_loss, 'jaccard_score_true_class': jaccard_score_true_class,
+                                                  'jaccard_score': jaccard_score,'dice_coef': dice_coef})
 scores = model.evaluate(test_dataloader)
 
 f = open(f'results/metrics/{model_name}.txt','w')
@@ -146,6 +219,9 @@ f.close()
 
 n = 5
 ids = len(test_dataloader)
+image, y = test_dataset[np.random.randint(0, ids)]
+# plt.imshow(denormalize(image))
+# plt.show()
 
 for i in range(10):
     image, y = test_dataset[np.random.randint(0,ids)]
@@ -165,7 +241,7 @@ for i in range(10):
 
     visualize(
         fig_name=i,
-        path = os.getcwd(),
+        path=os.getcwd(),
         image=denormalize(image.squeeze()),
         gt_mask=y,
         pr_mask=p[0,:,:,:],

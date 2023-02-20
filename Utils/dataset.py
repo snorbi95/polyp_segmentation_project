@@ -4,6 +4,9 @@ import tensorflow as tf
 import numpy as np
 
 # classes for data loading and preprocessing
+from matplotlib import pyplot as plt
+
+
 class Dataset:
     CLASSES = ['background', 'polyp']
 
@@ -12,6 +15,7 @@ class Dataset:
             images_dir,
             masks_dir,
             img_size,
+            edges=None,
             classes=None,
             augmentation=None,
             preprocessing=None,
@@ -20,6 +24,7 @@ class Dataset:
         self.images_fps = [os.path.join(images_dir, image_id) for image_id in self.ids]
         self.masks_fps = [os.path.join(masks_dir, image_id) for image_id in self.ids]
         self.img_size = img_size
+        self.edges = edges
         # convert str names to class values on masks
         self.class_values = [self.CLASSES.index(cls.lower()) for cls in classes]
 
@@ -32,10 +37,31 @@ class Dataset:
         image = cv2.imread(self.images_fps[i], cv2.IMREAD_COLOR)
         image = cv2.resize(image, (self.img_size[0], self.img_size[1]), interpolation=cv2.INTER_NEAREST)
         image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+        if self.edges:
+            from skimage import exposure, filters, color, feature, morphology
+            image = color.rgb2hsv(image)
+            _, gray_image, _ = cv2.split(image)
+            image = color.hsv2rgb(image)
+            r, g, b = cv2.split(image)
+            #gray_image = color.rgb2gray(image)
+            gray_image = exposure.adjust_sigmoid(gray_image, cutoff=0.5)
+            gray_image = exposure.equalize_hist(gray_image)
+            #gray_image = exposure.rescale_intensity(gray_image, out_range=(0,1))
+            #gray_image = 1 - gray_image
+            r = exposure.rescale_intensity(r * gray_image, out_range=(0,255)).astype(np.uint8)
+            g = exposure.rescale_intensity(g * gray_image, out_range=(0,255)).astype(np.uint8)
+            b = exposure.rescale_intensity(b * gray_image, out_range=(0,255)).astype(np.uint8)
+
         #print(self.masks_fps[i])
         mask = cv2.imread(self.masks_fps[i], cv2.IMREAD_GRAYSCALE)
         mask = cv2.resize(mask, (self.img_size[0], self.img_size[1]), interpolation=cv2.INTER_NEAREST)
         mask[mask == 255] = 1
+        # fig, ax = plt.subplots(1, 2)
+        # ax[0].imshow(gray_image)
+        # ax[1].imshow(image)
+        # plt.show()
+        #image = color.hsv2rgb(image)
+        #image = cv2.merge((r, g, b))
         #image = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY)
 
 

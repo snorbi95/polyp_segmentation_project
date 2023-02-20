@@ -11,9 +11,29 @@ def visualize(fig_name, path, **images):
         plt.yticks([])
         plt.title(' '.join(name.split('_')).title())
         plt.imshow(image)
-    plt.savefig(f"{path}/results/figures/{fig_name}")
-    plt.clf()
+    if path is not None:
+        plt.savefig(f"{path}/results/figures/{fig_name}")
+        plt.clf()
+    else:
+        plt.show()
+        #plt.clf()
 
+def visualize_edges(fig_name, path, **images):
+    """PLot images in one row."""
+    n = len(images)
+    plt.figure(figsize=(16, 5))
+    for i, (name, image) in enumerate(images.items()):
+        plt.subplot(1, n, i + 1)
+        plt.xticks([])
+        plt.yticks([])
+        plt.title(' '.join(name.split('_')).title())
+        plt.imshow(image)
+    if path is not None:
+        plt.savefig(f"{path}/results_for_edges/figures/{fig_name}")
+        plt.clf()
+    else:
+        plt.show()
+        #plt.clf()
 
 # helper function for data visualization
 def denormalize(x):

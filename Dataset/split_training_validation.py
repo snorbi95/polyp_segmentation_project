@@ -29,3 +29,6 @@ for image_name in image_names:
     elif image_num not in test_videos:
         shutil.copyfile(f'{img_dir}/{image_name}', f'validation_augmented/img/{image_name}')
         shutil.copyfile(f'{mask_dir}/{image_name}', f'validation_augmented/mask/{image_name}')
+    else:
+        shutil.copyfile(f'{img_dir}/{image_name}', f'test_augmented/img/{image_name}')
+        shutil.copyfile(f'{mask_dir}/{image_name}', f'test_augmented/mask/{image_name}')

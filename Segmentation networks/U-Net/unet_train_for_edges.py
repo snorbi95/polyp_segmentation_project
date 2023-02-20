@@ -7,10 +7,10 @@ import tensorflow as tf
 import numpy as np
 import keras.backend as K
 from Utils.metrics import dice_coef, jaccard_score, jaccard_score_true_class
-from Utils.losses import jaccard_loss
+from Utils.losses import jaccard_loss, weighted_jaccard_loss
 from Utils.augmentation import get_training_augmentation, get_validation_augmentation, get_preprocessing
 from Utils.dataset import Dataset, Dataloder
-from Utils.visuals import visualize, denormalize
+from Utils.visuals import visualize_edges, denormalize
 from pathlib import Path
 
 img_size = (256, 256)
@@ -20,16 +20,16 @@ batch_size = 4
 
 DATA_DIR = f'{Path(__file__).parent.parent.parent}/Dataset'
 
-x_train_dir = os.path.join(DATA_DIR, 'training/img')
-y_train_dir = os.path.join(DATA_DIR, 'training/mask')
+x_train_dir = os.path.join(DATA_DIR, 'training_augmented/img')
+y_train_dir = os.path.join(DATA_DIR, 'training_augmented/mask_edge')
 train_len = len(os.listdir(x_train_dir))
 
-x_valid_dir = os.path.join(DATA_DIR, 'validation/img')
-y_valid_dir = os.path.join(DATA_DIR, 'validation/mask')
+x_valid_dir = os.path.join(DATA_DIR, 'validation_augmented/img')
+y_valid_dir = os.path.join(DATA_DIR, 'validation_augmented/mask_edge')
 valid_len = len(os.listdir(x_valid_dir))
 
-x_test_dir = os.path.join(DATA_DIR, 'test/img')
-y_test_dir = os.path.join(DATA_DIR, 'test/mask')
+x_test_dir = os.path.join(DATA_DIR, 'test_augmented/img')
+y_test_dir = os.path.join(DATA_DIR, 'test_augmented/mask_edge')
 test_len = len(os.listdir(x_test_dir))
 
 
@@ -97,11 +97,11 @@ def get_model(img_size, num_classes):
 
 # Free up RAM in case the model definition cells were run multiple times
 keras.backend.clear_session()
-BACKBONE = 'efficientnetb3'
+BACKBONE = 'mobilenetv2'
 BATCH_SIZE = batch_size
 CLASSES = ['background', 'polyp']
 LR = 0.001
-EPOCHS = 25
+EPOCHS = 10
 
 preprocess_input = sm.get_preprocessing(BACKBONE)
 
@@ -116,7 +116,7 @@ optim = tf.keras.optimizers.Adam(LR)
 
 metrics = [jaccard_score_true_class, jaccard_score, dice_coef]
 
-model.compile(optim, jaccard_loss, metrics)
+model.compile(optim, weighted_jaccard_loss, metrics)
 # compile keras model with defined optimozer, loss and metrics
 
 model.summary()
@@ -124,32 +124,44 @@ model.summary()
 train_dataset = Dataset(
     x_train_dir,
     y_train_dir,
+    edges= True,
     img_size = img_size,
     classes=CLASSES,
     augmentation=get_training_augmentation(img_size),
-    preprocessing=get_preprocessing(preprocess_input),
+    #preprocessing=get_preprocessing(preprocess_input),
 )
+
+image, y = train_dataset[0]
+fig, ax = plt.subplots(1,2)
+ax[0].imshow(image)
+ax[1].imshow(y[:,:,1])
+plt.show()
 
 # Dataset for validation images
 valid_dataset = Dataset(
     x_valid_dir,
     y_valid_dir,
+    edges= True,
     img_size = img_size,
     classes=CLASSES,
     augmentation=get_validation_augmentation(img_size),
-    preprocessing=get_preprocessing(preprocess_input),
+    #preprocessing=get_preprocessing(preprocess_input),
 )
 
-train_dataloader = Dataloder(train_dataset, batch_size=BATCH_SIZE, shuffle=True, length=train_len // batch_size * 16, train_len=train_len)
-valid_dataloader = Dataloder(valid_dataset, batch_size=BATCH_SIZE, shuffle=True, length=valid_len // batch_size * 16, validation=True, validation_len=valid_len)
+train_dataloader = Dataloder(train_dataset, batch_size=BATCH_SIZE, shuffle=True, length=train_len // batch_size, train_len=train_len)
+valid_dataloader = Dataloder(valid_dataset, batch_size=BATCH_SIZE, shuffle=True, length=valid_len // batch_size, validation=True, validation_len=valid_len)
 
 #model desc
 model_num = 1
-loss = 'jaccard_loss'
+loss = 'modified_sum_jaccard_loss'
 image_size = str(img_size[0])
-image_mode = 'full'
-add_info = f'set_#1'
+image_mode = 'cropped_only_edges'
+add_info = f'dilation_5_edge_enhanced'
 model_name = f'unet_{model_num}_{BACKBONE}_{loss}_{image_size}_size_{image_mode}_{EPOCHS}_epoch_{add_info}'
+# model = keras.models.load_model(f'models_for_edges/{model_name}.h5',
+#                                  custom_objects={'weighted_jaccard_loss': weighted_jaccard_loss, 'jaccard_score_true_class': jaccard_score_true_class,
+#                                                   'jaccard_score': jaccard_score,'dice_coef': dice_coef})
+# model_name = f'unet_{model_num}_{BACKBONE}_{loss}_{image_size}_size_{image_mode}_{EPOCHS + 10}_epoch_{add_info}'
 # model = keras.models.load_model(f'models/unet_1_efficientnetb3_dice_loss_plus_focal_loss_224_size_crop_6_epoch_binary_arthery_w_true_weight_0.1_nadam.h5',
 #                                 custom_objects={'jaccard_loss': jaccard_loss,
 #                                                 'jaccard_score_true_class': jaccard_score_true_class,
@@ -157,61 +169,63 @@ model_name = f'unet_{model_num}_{BACKBONE}_{loss}_{image_size}_size_{image_mode}
 #                                                 'dice_coef': dice_coef})
 # define callbacks for learning rate scheduling and best checkpoints saving
 callbacks = [
-    tf.keras.callbacks.ModelCheckpoint(f"models/{model_name}.h5", save_best_only=True, mode='min'),
+    tf.keras.callbacks.ModelCheckpoint(f"models_for_edges/{model_name}.h5", save_best_only=True, mode='min'),
     tf. keras.callbacks.ReduceLROnPlateau(),
     #tf.keras.callbacks.EarlyStopping(monitor="val_loss",min_delta=0,patience=10,verbose=0,mode="auto",baseline=None,restore_best_weights=False,)
 ]
 
-# history = model.fit(
-#     train_dataloader,
-#     steps_per_epoch=len(train_dataloader),
-#     epochs=EPOCHS,
-#     callbacks=callbacks,
-#     validation_data=valid_dataloader,
-#     validation_steps=len(valid_dataloader),
-# )
-#
-# #Plot training & validation iou_score values
-# fig, ax = plt.subplots(2,2)
-#
-# ax[0,0].plot(history.history["loss"])
-# ax[0,0].set_title("Training Loss")
-# ax[0,0].set_ylabel("loss")
-# ax[0,0].set_xlabel("epoch")
-#
-# ax[0,1].plot(history.history["jaccard_score"])
-# ax[0,1].set_title("Training Accuracy")
-# ax[0,1].set_ylabel("accuracy")
-# ax[0,1].set_xlabel("epoch")
-#
-# ax[1,0].plot(history.history["val_loss"])
-# ax[1,0].set_title("Validation Loss")
-# ax[1,0].set_ylabel("val_loss")
-# ax[1,0].set_xlabel("epoch")
-#
-# ax[1,1].plot(history.history["val_jaccard_score"])
-# ax[1,1].set_title("Validation Accuracy")
-# ax[1,1].set_ylabel("val_accuracy")
-# ax[1,1].set_xlabel("epoch")
-# plt.savefig(f'results/plots/model_plot_{model_name}.png', dpi = 300)
+
+history = model.fit(
+    train_dataloader,
+    steps_per_epoch=len(train_dataloader),
+    epochs=EPOCHS,
+    callbacks=callbacks,
+    validation_data=valid_dataloader,
+    validation_steps=len(valid_dataloader),
+)
+
+#Plot training & validation iou_score values
+fig, ax = plt.subplots(2,2)
+
+ax[0,0].plot(history.history["loss"])
+ax[0,0].set_title("Training Loss")
+ax[0,0].set_ylabel("loss")
+ax[0,0].set_xlabel("epoch")
+
+ax[0,1].plot(history.history["jaccard_score_true_class"])
+ax[0,1].set_title("Training Accuracy")
+ax[0,1].set_ylabel("accuracy")
+ax[0,1].set_xlabel("epoch")
+
+ax[1,0].plot(history.history["val_loss"])
+ax[1,0].set_title("Validation Loss")
+ax[1,0].set_ylabel("val_loss")
+ax[1,0].set_xlabel("epoch")
+
+ax[1,1].plot(history.history["val_jaccard_score_true_class"])
+ax[1,1].set_title("Validation Accuracy")
+ax[1,1].set_ylabel("val_accuracy")
+ax[1,1].set_xlabel("epoch")
+plt.savefig(f'results_for_edges/plots/model_plot_{model_name}.png', dpi = 300)
 
 test_dataset = Dataset(
     x_test_dir,
     y_test_dir,
+    edges= True,
     img_size = img_size,
     classes=CLASSES,
     #augmentation=get_validation_augmentation(),
-    preprocessing=get_preprocessing(preprocess_input),
+    #preprocessing=get_preprocessing(preprocess_input),
 )
 
 test_dataloader = Dataloder(test_dataset, batch_size=1, shuffle=False, train_len=test_len)
 
-model = keras.models.load_model(f'models/unet_1_efficientnetb3_jaccard_loss_256_size_cropped_25_epoch_set_#5.h5',
-                                 custom_objects={'jaccard_loss': jaccard_loss, 'jaccard_score_true_class': jaccard_score_true_class,
+model = keras.models.load_model(f'models_for_edges/{model_name}.h5',
+                                 custom_objects={'weighted_jaccard_loss': weighted_jaccard_loss, 'jaccard_score_true_class': jaccard_score_true_class,
                                                   'jaccard_score': jaccard_score,'dice_coef': dice_coef})
 scores = model.evaluate(test_dataloader)
 
-f = open(f'results/metrics/{model_name}.txt','w')
+f = open(f'results_for_edges/metrics/{model_name}.txt','w')
 print("Loss: {:.5}".format(scores[0]), file=f)
 for metric, value in zip(metrics, scores[1:]):
     print("mean {}: {:.5}".format(metric.__name__, value), file=f)
@@ -239,7 +253,7 @@ for i in range(10):
     p = p.astype(np.int32)
     p = np.concatenate([p, p, p], axis=3)
 
-    visualize(
+    visualize_edges(
         fig_name=i,
         path=os.getcwd(),
         image=denormalize(image.squeeze()),

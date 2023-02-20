@@ -1,4 +1,5 @@
 import math
+import random
 
 from skimage.measure import regionprops, label
 from skimage import io
@@ -7,6 +8,7 @@ import matplotlib.pyplot as plt
 
 image_dir = f'../Dataset/dataset_all/img'
 mask_dir = f'../Dataset/dataset_all/mask'
+image_size = 96
 
 image_names = os.listdir(image_dir)
 
@@ -29,12 +31,12 @@ def image_cropper(image_name, slices_to_capture):
     regions.sort(key=lambda x: x.area, reverse=True)
     region = regions[0]
 
-    y0, x0 = region.centroid
+    y0, x0 = region.centroid[0] + random.randint(-50,100), region.centroid[1] + random.randint(-50,100)
     orientation = region.orientation
-    x1 = x0 + math.sin(orientation) * 0.5 * region.axis_major_length
-    y1 = y0 + math.cos(orientation) * 0.5 * region.axis_major_length
-    x2 = x0 - math.sin(orientation) * 0.5 * region.axis_major_length
-    y2 = y0 - math.cos(orientation) * 0.5 * region.axis_major_length
+    x1 = x0 + math.sin(orientation) * (random.randrange(1,9,1) / 10) * region.axis_major_length
+    y1 = y0 + math.cos(orientation) * (random.randrange(1,9,1) / 10) * region.axis_major_length
+    x2 = x0 - math.sin(orientation) * (random.randrange(1,9,1) / 10) * region.axis_major_length
+    y2 = y0 - math.cos(orientation) * (random.randrange(1,9,1) / 10) * region.axis_major_length
     x_interval = abs(x2 - x1) / slices_to_capture
     y_interval = abs(y2 - y1) / slices_to_capture
 
@@ -47,28 +49,28 @@ def image_cropper(image_name, slices_to_capture):
     while captured_images < slices_to_capture:
         for i in range(slices_to_capture + 1):
             # ax.plot((x0, x1), (y0, y1), '-r', linewidth=2.5)
-            # plt.plot((x1, x2), (y1, y2), '-r', linewidth=2.5)
+            #plt.plot((x1, x2), (y1, y2), '-r', linewidth=2.5)
             x, y = int(x1 + (i * x_interval)), int(y1 + (i * y_interval))
-            if x - 192 > 0 and y - 192 > 0 and x + 192 < mask_image.shape[1] and y + 192 < mask_image.shape[0]:
+            if x - 192 > 0 and y - (image_size // 2) > 0 and x + (image_size // 2) < mask_image.shape[1] and y + (image_size // 2) < mask_image.shape[0]:
                 captured_images += 1
-                cropped_mask = mask_image[y - 192:y + 192,x - 192:x + 192]
-                cropped_rgb_image = rgb_image[y - 192:y + 192,x - 192:x + 192]
-                io.imsave(f'../Dataset/dataset_all_augmented/img/{image_name}_{captured_images}.png', cropped_rgb_image)
-                io.imsave(f'../Dataset/dataset_all_augmented/mask/{image_name}_{captured_images}.png', cropped_mask)
+                cropped_mask = mask_image[y - (image_size // 2):y + (image_size // 2),x - (image_size // 2):x + (image_size // 2)]
+                cropped_rgb_image = rgb_image[y - (image_size // 2):y + (image_size // 2),x - (image_size // 2):x + (image_size // 2)]
+                io.imsave(f'../Dataset/dataset_all_augmented_small/img/{image_name}_{captured_images}.png', cropped_rgb_image)
+                io.imsave(f'../Dataset/dataset_all_augmented_small/mask/{image_name}_{captured_images}.png', cropped_mask)
                 print(f'Saving {captured_images}th image from {image_name}...')
                 #plt.imshow(cropped_mask)
-                #plt.imshow(mask_image)
-                # plt.plot((x - 128, x + 128), (y - 128, y - 128))
-                # plt.plot((x - 128, x + 128), (y + 128, y + 128))
-                # plt.plot((x + 128, x + 128), (y - 128, y + 128))
-                # plt.plot((x - 128, x - 128), (y + 128, y - 128))
+                # plt.imshow(mask_image)
+                # plt.plot((x - (image_size // 2), x + (image_size // 2)), (y - (image_size // 2), y - (image_size // 2)))
+                # plt.plot((x - (image_size // 2), x + (image_size // 2)), (y + (image_size // 2), y + (image_size // 2)))
+                # plt.plot((x + (image_size // 2), x + (image_size // 2)), (y - (image_size // 2), y + (image_size // 2)))
+                # plt.plot((x - (image_size // 2), x - (image_size // 2)), (y + (image_size // 2), y - (image_size // 2)))
                 # # plt.plot((x, x + 128), (y, y))
                 # # plt.plot((x, x), (y, y - 128))
                 # # plt.plot((x, x), (y, y + 128))
                 # plt.plot(x, y, 'go')
                 # plt.plot()
-                # ax.axis((0,600,600,0))
-                #plt.show()
+                # #ax.axis((0,600,600,0))
+                # plt.show()
         if get_image_quarter(x1, y1, mask_image.shape) == 1:
             x1, y1 = x1 + 15, y1 + 15
         elif get_image_quarter(x1, y1, mask_image.shape) == 2:
